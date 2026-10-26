@@ -7,6 +7,14 @@ interface PdfPreviewProps {
   file: File | null;
 }
 
+interface ClickableOverlayLink {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  url: string;
+}
+
 export default function PdfPreview({ file }: PdfPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,9 +23,10 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [zoomMultiplier, setZoomMultiplier] = useState<number>(1.0);
-  const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270 degrees
+  const [rotation, setRotation] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [pdfDoc, setPdfDoc] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [pageLinks, setPageLinks] = useState<ClickableOverlayLink[]>([]);
 
   // Load PDF document using PDF.js
   useEffect(() => {
@@ -29,6 +38,7 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         setNumPages(0);
         setCurrentPage(1);
         setRotation(0);
+        setPageLinks([]);
         return;
       }
 
@@ -74,15 +84,15 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
     };
   }, [file]);
 
-  // Responsive render: Auto-fit width to container without cropping or inverted coordinates
+  // Responsive render: Auto-fit width + Interactive Clickable Link Overlays
   const renderPage = useCallback(
     async (pageNumber: number) => {
       if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
 
-      // Cancel any ongoing render task before starting a new one
       if (renderTaskRef.current) {
         try {
           renderTaskRef.current.cancel();
+          await renderTaskRef.current.promise.catch(() => {});
         } catch {}
         renderTaskRef.current = null;
       }
@@ -93,21 +103,15 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         const ctx = canvas.getContext("2d", { willReadFrequently: false });
         if (!ctx) return;
 
-        // Reset any canvas transformations from previous renders to avoid Y-axis coordinate flips
         ctx.resetTransform();
 
-        // Calculate available width of the container
         const availableWidth = Math.max(300, containerRef.current.clientWidth - 28);
-
-        // Account for native PDF page rotation + user rotation
         const effectiveRotation = ((page.rotate || 0) + rotation) % 360;
         const unscaledViewport = page.getViewport({ scale: 1.0, rotation: effectiveRotation });
 
-        // Auto-fit scale factor to fit full page width
         const autoFitScale = (availableWidth / unscaledViewport.width) * zoomMultiplier;
         const viewport = page.getViewport({ scale: autoFitScale, rotation: effectiveRotation });
 
-        // High DPI (Retina) support without manually tampering with context matrix
         const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
         canvas.width = Math.floor(viewport.width * pixelRatio);
         canvas.height = Math.floor(viewport.height * pixelRatio);
@@ -127,6 +131,33 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         renderTaskRef.current = currentTask;
 
         await currentTask.promise;
+
+        // Extract and position clickable link annotations directly over the canvas
+        const annotations = await page.getAnnotations();
+        const activeLinks: ClickableOverlayLink[] = [];
+
+        for (const annot of annotations) {
+          const targetUrl = annot.url || annot.unsafeUrl;
+          if (annot.subtype === "Link" && targetUrl && annot.rect) {
+            try {
+              const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(annot.rect);
+              const left = Math.min(x1, x2);
+              const top = Math.min(y1, y2);
+              const width = Math.abs(x2 - x1);
+              const height = Math.abs(y2 - y1);
+
+              activeLinks.push({
+                left,
+                top,
+                width,
+                height,
+                url: targetUrl,
+              });
+            } catch {}
+          }
+        }
+
+        setPageLinks(activeLinks);
       } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         if (err?.name !== "RenderingCancelledException") {
           console.error("Error rendering page:", err);
@@ -136,14 +167,12 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
     [pdfDoc, zoomMultiplier, rotation]
   );
 
-  // Re-render when page, zoom, or rotation changes
   useEffect(() => {
     if (pdfDoc && currentPage > 0) {
       renderPage(currentPage);
     }
   }, [pdfDoc, currentPage, zoomMultiplier, rotation, renderPage]);
 
-  // Auto-resize on window / panel resize
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -246,11 +275,10 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         </div>
       </div>
 
-      {/* Responsive Canvas Container */}
+      {/* Responsive Canvas Container with Interactive Clickable Links */}
       <div
         ref={containerRef}
         className="w-full overflow-auto bg-zinc-100/70 p-2 sm:p-3 flex justify-center items-start min-h-[500px] max-h-[85vh]"
-        onContextMenu={(e) => e.preventDefault()}
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-64 gap-2 text-zinc-400">
@@ -258,8 +286,26 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
             <span className="text-xs">Rendering page...</span>
           </div>
         ) : (
-          <div className="shadow-md rounded bg-white overflow-hidden border border-zinc-300 flex justify-center max-w-full">
+          <div className="relative shadow-md rounded bg-white overflow-hidden border border-zinc-300 w-fit h-fit select-none">
             <canvas ref={canvasRef} className="block pointer-events-none" />
+
+            {/* Clickable Link Overlays directly on PDF page buttons like "View File" */}
+            {pageLinks.map((link, idx) => (
+              <a
+                key={idx}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute z-20 cursor-pointer bg-blue-500/15 hover:bg-blue-600/30 border border-blue-500/40 hover:border-blue-600 rounded-xs transition-colors"
+                style={{
+                  left: `${link.left}px`,
+                  top: `${link.top}px`,
+                  width: `${link.width}px`,
+                  height: `${link.height}px`,
+                }}
+                title={`Click to open/download: ${link.url}`}
+              />
+            ))}
           </div>
         )}
       </div>

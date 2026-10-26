@@ -184,7 +184,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Convert PDF file to base64
     const arrayBuffer = await file.arrayBuffer();
 
     // 3. Magic bytes validation (Check %PDF-)
@@ -201,11 +200,9 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Preferred model chain with fallback
-    const preferredModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
-    const modelsToTry = Array.from(
-      new Set([preferredModel, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"])
-    );
+    // Exclusively prioritize gemini-3.5-flash-lite to protect other models' limits
+    const configuredModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+    const modelsToTry = [configuredModel];
 
     let lastError: Error | null = null;
     let extractedData: GeMBidData | null = null;
@@ -234,9 +231,10 @@ export async function POST(req: NextRequest) {
           },
         });
 
+        // 50-second timeout for large 50+ page documents
         const response = await withTimeout(
           generatePromise,
-          25000,
+          50000,
           `Model ${model} took too long to respond`
         );
 
