@@ -17,11 +17,11 @@ import {
   FileDown,
   LogOut,
   Eye,
+  Link as LinkIcon,
 } from "lucide-react";
 import { GeMBidData, BID_FIELD_DEFINITIONS } from "@/types/bid";
 import { exportToExcel, exportToCSV } from "@/utils/export";
 
-// Dynamically import PdfPreview with SSR disabled to guarantee smooth canvas rendering
 const PdfPreview = dynamic(() => import("@/components/PdfPreview"), {
   ssr: false,
   loading: () => (
@@ -71,7 +71,7 @@ export default function Home() {
 
     setIsLoading(true);
     setError(null);
-    setStatusMessage("Processing document & extracting fields...");
+    setStatusMessage("Extracting fields, technical specs, and document links...");
 
     try {
       const formData = new FormData();
@@ -89,7 +89,10 @@ export default function Home() {
       }
 
       setData(result.data);
-      setStatusMessage("Document processed successfully.");
+      const linkCount = result.data.extractedLinksList?.length || 0;
+      setStatusMessage(
+        `Processed successfully! ${linkCount > 0 ? `${linkCount} document links & files extracted.` : ""}`
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong.";
       setError(message);
@@ -126,7 +129,65 @@ export default function Home() {
     setTimeout(() => setIsCopiedAll(false), 2000);
   };
 
-  const renderValueContent = (val: string) => {
+  const renderValueContent = (key: keyof GeMBidData, val: string) => {
+    if (key === "documentLinks") {
+      if (data?.extractedLinksList && data.extractedLinksList.length > 0) {
+        return (
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider flex items-center justify-between pb-1 border-b border-zinc-100">
+              <span>Extracted Documents & Links ({data.extractedLinksList.length})</span>
+            </div>
+            {data.extractedLinksList.map((item, idx) => (
+              <div
+                key={idx}
+                className="p-2.5 rounded-lg bg-zinc-50 border border-zinc-200/80 hover:bg-zinc-100/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-200 text-zinc-700">
+                      Page {item.page}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800">
+                      {item.type}
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-zinc-800 line-clamp-1" title={item.title}>
+                    {item.title}
+                  </p>
+                </div>
+
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={item.isDownloadable ? true : undefined}
+                  className={`self-start sm:self-center inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    item.isDownloadable
+                      ? "bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+                      : "bg-white hover:bg-zinc-200 text-zinc-800 border border-zinc-300"
+                  }`}
+                  title={item.url}
+                >
+                  {item.isDownloadable ? (
+                    <>
+                      <FileDown className="h-3.5 w-3.5 text-white" />
+                      <span>Download File</span>
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>Open Link</span>
+                    </>
+                  )}
+                </a>
+              </div>
+            ))}
+          </div>
+        );
+      }
+    }
+
     if (!val || val === "N/A" || val === "None" || val === "Not Specified") {
       return <span className="text-zinc-400 italic">{val || "N/A"}</span>;
     }
@@ -146,7 +207,7 @@ export default function Home() {
           if (part.match(/^https?:\/\//i)) {
             const isDownloadable =
               /\.(pdf|docx?|xlsx?|csv|zip|rar|tar)(\?.*)?$/i.test(part) ||
-              /download|export|attachment/i.test(part);
+              /download|showbid|export|file/i.test(part);
 
             return (
               <a
@@ -200,21 +261,24 @@ export default function Home() {
     );
   };
 
-  const filteredFields = BID_FIELD_DEFINITIONS.filter(
-    (f) =>
+  const filteredFields = BID_FIELD_DEFINITIONS.filter((f) => {
+    const rawVal = data ? data[f.key] : "";
+    const strVal = typeof rawVal === "string" ? rawVal : "";
+    return (
       f.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (data && data[f.key]?.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+      strVal.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
 
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col py-8 px-4 sm:px-6 lg:px-8">
+    <main className="min-h-screen w-full bg-zinc-50 text-zinc-900 flex flex-col py-6 px-3 sm:px-6 lg:px-8 font-sans">
       {/* Top Action Row */}
-      <div className="max-w-7xl mx-auto w-full flex items-center justify-between pb-4">
+      <div className="w-full max-w-[1700px] mx-auto flex items-center justify-between pb-3">
         <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
           {file && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-zinc-200 rounded-md">
               <Eye className="h-3.5 w-3.5 text-zinc-400" />
-              <span>Side-by-side verification enabled</span>
+              <span>Full-width side-by-side verification</span>
             </span>
           )}
         </div>
@@ -229,16 +293,16 @@ export default function Home() {
         </button>
       </div>
 
-      {/* Main Content Layout: Stacks when empty, 2 columns when file is selected */}
+      {/* Main Responsive Grid Layout: Expands to full screen width */}
       <div
-        className={`max-w-7xl mx-auto w-full transition-all ${
-          file ? "grid grid-cols-1 lg:grid-cols-2 gap-6 items-start" : "max-w-3xl"
+        className={`w-full max-w-[1700px] mx-auto transition-all ${
+          file ? "grid grid-cols-1 lg:grid-cols-2 gap-5 xl:gap-6 items-start" : "max-w-3xl"
         }`}
       >
         {/* LEFT COLUMN: Upload Card & Extracted Table */}
-        <div className="space-y-6">
+        <div className="space-y-5 w-full">
           {/* Upload Card */}
-          <section className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
+          <section className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 shadow-sm space-y-4">
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
@@ -335,7 +399,7 @@ export default function Home() {
 
           {/* Extracted Results Table Section */}
           {data && (
-            <section className="bg-white border border-zinc-200 rounded-xl p-5 shadow-sm space-y-4">
+            <section className="bg-white border border-zinc-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
               {/* Toolbar */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-zinc-200">
                 <input
@@ -396,7 +460,8 @@ export default function Home() {
                   </thead>
                   <tbody className="divide-y divide-zinc-200">
                     {filteredFields.map((field) => {
-                      const val = data[field.key] || "N/A";
+                      const rawVal = data[field.key];
+                      const val = typeof rawVal === "string" ? rawVal : "";
                       return (
                         <tr
                           key={field.key}
@@ -405,12 +470,17 @@ export default function Home() {
                           title="Click row to copy value"
                         >
                           <td className="py-3 px-3.5 font-medium text-zinc-700 align-top text-xs sm:text-sm">
-                            {field.label}
+                            <div className="flex items-center gap-1.5">
+                              {field.key === "documentLinks" && (
+                                <LinkIcon className="h-3.5 w-3.5 text-blue-500" />
+                              )}
+                              <span>{field.label}</span>
+                            </div>
                           </td>
                           <td className="py-3 px-3.5 font-medium text-zinc-900 break-words align-top text-xs sm:text-sm">
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex-1">
-                                {renderValueContent(val)}
+                                {renderValueContent(field.key, val)}
                               </div>
                               <span className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 mt-0.5">
                                 {copiedKey === field.key ? (
@@ -431,9 +501,9 @@ export default function Home() {
           )}
         </div>
 
-        {/* RIGHT COLUMN: Pure Canvas PDF Preview (No iframe, No browser download toolbar) */}
+        {/* RIGHT COLUMN: Responsive Auto-Fit Full-Width PDF Preview */}
         {file && (
-          <div className="lg:sticky lg:top-8 space-y-2">
+          <div className="w-full lg:sticky lg:top-4">
             <PdfPreview file={file} />
           </div>
         )}

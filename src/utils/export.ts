@@ -5,16 +5,38 @@ import { GeMBidData, BID_FIELD_DEFINITIONS } from "@/types/bid";
  * Downloads data as a standard .xlsx Excel file with Field and Value columns
  */
 export function exportToExcel(data: GeMBidData, fileName = "Extracted_Data.xlsx") {
-  const rows = BID_FIELD_DEFINITIONS.map((field) => ({
-    "Field": field.label,
-    "Value": data[field.key] || "N/A",
-  }));
+  const rows: Array<{ Field: string; Value: string }> = [];
+
+  // 1. Standard Fields (except documentLinks which we format with details)
+  for (const field of BID_FIELD_DEFINITIONS) {
+    if (field.key === "documentLinks") continue;
+    const raw = data[field.key];
+    rows.push({
+      Field: field.label,
+      Value: typeof raw === "string" ? raw : "N/A",
+    });
+  }
+
+  // 2. Structured Document Links with Page, Type, and Title
+  if (data.extractedLinksList && data.extractedLinksList.length > 0) {
+    data.extractedLinksList.forEach((link, idx) => {
+      rows.push({
+        Field: `Link #${idx + 1} (Page ${link.page} - ${link.type}): ${link.title}`,
+        Value: link.url,
+      });
+    });
+  } else if (typeof data.documentLinks === "string") {
+    rows.push({
+      Field: "Document Links & Downloads",
+      Value: data.documentLinks,
+    });
+  }
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
 
   worksheet["!cols"] = [
-    { wch: 45 },
     { wch: 55 },
+    { wch: 65 },
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -28,12 +50,36 @@ export function exportToExcel(data: GeMBidData, fileName = "Extracted_Data.xlsx"
  */
 export function exportToCSV(data: GeMBidData, fileName = "Extracted_Data.csv") {
   const headers = ["Field", "Value"];
-  
+  const rows: Array<{ Field: string; Value: string }> = [];
+
+  for (const field of BID_FIELD_DEFINITIONS) {
+    if (field.key === "documentLinks") continue;
+    const raw = data[field.key];
+    rows.push({
+      Field: field.label,
+      Value: typeof raw === "string" ? raw : "N/A",
+    });
+  }
+
+  if (data.extractedLinksList && data.extractedLinksList.length > 0) {
+    data.extractedLinksList.forEach((link, idx) => {
+      rows.push({
+        Field: `Link #${idx + 1} (Page ${link.page} - ${link.type}): ${link.title}`,
+        Value: link.url,
+      });
+    });
+  } else if (typeof data.documentLinks === "string") {
+    rows.push({
+      Field: "Document Links & Downloads",
+      Value: data.documentLinks,
+    });
+  }
+
   const csvRows = [
     headers.join(","),
-    ...BID_FIELD_DEFINITIONS.map((field) => {
-      const escapedLabel = `"${field.label.replace(/"/g, '""')}"`;
-      const escapedValue = `"${(data[field.key] || "").replace(/"/g, '""')}"`;
+    ...rows.map((row) => {
+      const escapedLabel = `"${row.Field.replace(/"/g, '""')}"`;
+      const escapedValue = `"${row.Value.replace(/"/g, '""')}"`;
       return `${escapedLabel},${escapedValue}`;
     }),
   ];

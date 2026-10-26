@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { ZoomIn, ZoomOut, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 
 interface PdfPreviewProps {
   file: File | null;
@@ -12,7 +12,7 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.1);
+  const [zoomMultiplier, setZoomMultiplier] = useState<number>(1.0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [pdfDoc, setPdfDoc] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -64,10 +64,10 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
     };
   }, [file]);
 
-  // Render current page onto canvas
+  // Responsive render: Auto-fit width to container without cropping
   const renderPage = useCallback(
     async (pageNumber: number) => {
-      if (!pdfDoc || !canvasRef.current) return;
+      if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
 
       try {
         const page = await pdfDoc.getPage(pageNumber);
@@ -75,9 +75,22 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        const viewport = page.getViewport({ scale });
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        // Calculate available width of the container
+        const availableWidth = Math.max(300, containerRef.current.clientWidth - 24);
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+
+        // Auto-fit scale factor to fit full page width
+        const autoFitScale = (availableWidth / unscaledViewport.width) * zoomMultiplier;
+        const viewport = page.getViewport({ scale: autoFitScale });
+
+        // High DPI support for razor-sharp rendering on Retina / Mobile screens
+        const outputScale = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+        ctx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
 
         const renderContext = {
           canvasContext: ctx,
@@ -89,14 +102,29 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         console.error("Error rendering page:", err);
       }
     },
-    [pdfDoc, scale]
+    [pdfDoc, zoomMultiplier]
   );
 
+  // Re-render when page or zoom changes
   useEffect(() => {
     if (pdfDoc && currentPage > 0) {
       renderPage(currentPage);
     }
-  }, [pdfDoc, currentPage, scale, renderPage]);
+  }, [pdfDoc, currentPage, zoomMultiplier, renderPage]);
+
+  // Auto-resize on window / panel resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (pdfDoc && currentPage > 0) {
+        renderPage(currentPage);
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [pdfDoc, currentPage, renderPage]);
 
   if (!file) {
     return (
@@ -107,11 +135,11 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
   }
 
   return (
-    <div className="h-full bg-white border border-zinc-200 rounded-xl shadow-xs flex flex-col overflow-hidden select-none">
-      {/* Top Controls Toolbar (No download or print buttons) */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-50 border-b border-zinc-200 text-xs text-zinc-700">
+    <div className="w-full bg-white border border-zinc-200 rounded-xl shadow-xs flex flex-col overflow-hidden select-none">
+      {/* Top Controls Toolbar */}
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-zinc-50 border-b border-zinc-200 text-xs text-zinc-700">
         {/* Pagination */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           <button
             type="button"
             disabled={currentPage <= 1 || isLoading}
@@ -122,7 +150,7 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          <span className="font-medium tabular-nums px-1">
+          <span className="font-medium tabular-nums text-xs px-1">
             Page {currentPage} of {numPages || 1}
           </span>
 
@@ -137,11 +165,11 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
           </button>
         </div>
 
-        {/* Zoom Controls */}
+        {/* Zoom & Auto-Fit Controls */}
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setScale((s) => Math.max(0.6, s - 0.15))}
+            onClick={() => setZoomMultiplier((z) => Math.max(0.6, z - 0.15))}
             className="p-1 rounded hover:bg-zinc-200 transition-colors cursor-pointer"
             title="Zoom Out"
           >
@@ -149,12 +177,12 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
           </button>
 
           <span className="text-[11px] font-medium text-zinc-600 tabular-nums px-1">
-            {Math.round(scale * 100)}%
+            {Math.round(zoomMultiplier * 100)}%
           </span>
 
           <button
             type="button"
-            onClick={() => setScale((s) => Math.min(2.0, s + 0.15))}
+            onClick={() => setZoomMultiplier((z) => Math.min(2.5, z + 0.15))}
             className="p-1 rounded hover:bg-zinc-200 transition-colors cursor-pointer"
             title="Zoom In"
           >
@@ -163,28 +191,29 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
 
           <button
             type="button"
-            onClick={() => setScale(1.1)}
-            className="p-1 rounded hover:bg-zinc-200 transition-colors ml-1 cursor-pointer"
-            title="Reset Zoom"
+            onClick={() => setZoomMultiplier(1.0)}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-200/70 hover:bg-zinc-200 text-zinc-700 transition-colors ml-1 cursor-pointer"
+            title="Fit to Full Width"
           >
-            <RotateCcw className="h-3 w-3 text-zinc-500" />
+            <Maximize2 className="h-3 w-3" />
+            <span className="hidden sm:inline">Fit Width</span>
           </button>
         </div>
       </div>
 
-      {/* Canvas Viewport (Pure HTML5 Canvas - No iframe, No browser download toolbar) */}
+      {/* Responsive Canvas Container with Auto-Fit */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto bg-zinc-100/70 p-4 flex justify-center items-start min-h-[550px] max-h-[780px]"
+        className="w-full overflow-auto bg-zinc-100/70 p-2 sm:p-3 flex justify-center items-start min-h-[500px] max-h-[85vh]"
         onContextMenu={(e) => e.preventDefault()}
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-64 gap-2 text-zinc-400">
             <div className="h-6 w-6 border-2 border-zinc-300 border-t-zinc-700 rounded-full animate-spin" />
-            <span className="text-xs">Rendering preview...</span>
+            <span className="text-xs">Rendering full page...</span>
           </div>
         ) : (
-          <div className="shadow-md rounded bg-white overflow-hidden border border-zinc-300">
+          <div className="shadow-md rounded bg-white overflow-hidden border border-zinc-300 flex justify-center max-w-full">
             <canvas ref={canvasRef} className="block pointer-events-none" />
           </div>
         )}

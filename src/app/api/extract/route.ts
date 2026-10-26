@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI, Type } from "@google/genai";
 import { GeMBidData } from "@/types/bid";
+import { extractStructuredLinksFromPdf } from "@/utils/pdfLinks";
 
 // Vercel Serverless Function settings
 export const maxDuration = 60; // 60 seconds timeout
@@ -268,6 +269,21 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    // Dynamically extract all structured links (Page, Type, Title, URL) from the authentic PDF binary
+    try {
+      const binaryBuffer = Buffer.from(arrayBuffer);
+      const structuredLinks = await extractStructuredLinksFromPdf(binaryBuffer);
+
+      extractedData.extractedLinksList = structuredLinks;
+      if (structuredLinks.length > 0) {
+        extractedData.documentLinks = structuredLinks
+          .map((l) => `[Page ${l.page}] ${l.type}: ${l.title} -> ${l.url}`)
+          .join("\n");
+      }
+    } catch (linkErr) {
+      console.warn("[PDF Link Extractor] Error extracting structured links:", linkErr);
     }
 
     return NextResponse.json({

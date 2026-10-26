@@ -1,3 +1,11 @@
+export interface DocumentLinkItem {
+  page: number;
+  type: string;        // e.g. "Specification Document", "BOQ Detail Document"
+  title: string;       // e.g. Item title or surrounding heading
+  url: string;         // target download/view URL
+  isDownloadable: boolean;
+}
+
 export interface GeMBidData {
   bidNumber: string;
   bidEndDateTime: string;
@@ -14,12 +22,12 @@ export interface GeMBidData {
   address: string;
   deliveryDays: string;
   documentLinks?: string;
+  extractedLinksList?: DocumentLinkItem[];
 }
 
 export interface FieldDefinition {
   key: keyof GeMBidData;
   label: string;
-  hindiLabel?: string;
   category: "Overview" | "Relaxations" | "Technical Specifications" | "Consignee & Delivery" | "Links & References";
 }
 
