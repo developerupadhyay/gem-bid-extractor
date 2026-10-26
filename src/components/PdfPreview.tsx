@@ -19,6 +19,8 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const isRenderingRef = useRef<boolean>(false);
+  const pendingPageRef = useRef<number | null>(null);
 
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -89,6 +91,19 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
     async (pageNumber: number) => {
       if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
 
+      // If a render is already in progress, queue this page request and cancel current task
+      if (isRenderingRef.current) {
+        pendingPageRef.current = pageNumber;
+        if (renderTaskRef.current) {
+          try {
+            renderTaskRef.current.cancel();
+          } catch {}
+        }
+        return;
+      }
+
+      isRenderingRef.current = true;
+
       if (renderTaskRef.current) {
         try {
           renderTaskRef.current.cancel();
@@ -100,6 +115,8 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
       try {
         const page = await pdfDoc.getPage(pageNumber);
         const canvas = canvasRef.current;
+        if (!canvas || !containerRef.current) return;
+
         const ctx = canvas.getContext("2d", { willReadFrequently: false });
         if (!ctx) return;
 
@@ -131,6 +148,7 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         renderTaskRef.current = currentTask;
 
         await currentTask.promise;
+        renderTaskRef.current = null;
 
         // Extract and position clickable link annotations directly over the canvas
         const annotations = await page.getAnnotations();
@@ -162,6 +180,13 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
         if (err?.name !== "RenderingCancelledException") {
           console.error("Error rendering page:", err);
         }
+      } finally {
+        isRenderingRef.current = false;
+        if (pendingPageRef.current !== null) {
+          const nextPage = pendingPageRef.current;
+          pendingPageRef.current = null;
+          renderPage(nextPage);
+        }
       }
     },
     [pdfDoc, zoomMultiplier, rotation]
@@ -173,17 +198,25 @@ export default function PdfPreview({ file }: PdfPreviewProps) {
     }
   }, [pdfDoc, currentPage, zoomMultiplier, rotation, renderPage]);
 
+  // Debounced resize observer to prevent render collisions
   useEffect(() => {
     if (!containerRef.current) return;
 
+    let resizeTimer: NodeJS.Timeout;
     const resizeObserver = new ResizeObserver(() => {
-      if (pdfDoc && currentPage > 0) {
-        renderPage(currentPage);
-      }
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (pdfDoc && currentPage > 0) {
+          renderPage(currentPage);
+        }
+      }, 150);
     });
 
     resizeObserver.observe(containerRef.current);
-    return () => resizeObserver.disconnect();
+    return () => {
+      clearTimeout(resizeTimer);
+      resizeObserver.disconnect();
+    };
   }, [pdfDoc, currentPage, renderPage]);
 
   const handleRotate = () => {

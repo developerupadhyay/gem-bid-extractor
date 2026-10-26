@@ -18,11 +18,12 @@ export async function extractStructuredLinksFromPdf(
   const seenUrls = new Set<string>();
 
   try {
-    const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const doc = await pdfjs.getDocument({
       data: new Uint8Array(buffer),
       isEvalSupported: false,
       useSystemFonts: true,
+      disableFontFace: true,
     }).promise;
 
     for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
