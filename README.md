@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GeM Bid AI OCR & Field Extractor
 
-## Getting Started
+An AI-powered document processing tool built with **Next.js App Router**, **Google Gemini 3.8 Flash**, and **Tailwind CSS**, designed for instant deployment on **Vercel**.
 
-First, run the development server:
+Upload any Government e-Marketplace (GeM) Bid / Tender PDF document and extract exact technical parameters, relaxations, quantities, and consignee delivery details directly into structured tables, **Microsoft Excel (.xlsx)**, **CSV**, and **JSON**.
 
+---
+
+## ⚡ Extracted Fields (14 Key Bid Parameters)
+
+1. **Bid Number** (बिड संख्या)
+2. **Bid End Date/Time** (बिड बंद होने की तारीख/समय)
+3. **Total Quantity** (कुल मात्रा)
+4. **Office Name** (कार्यालय का नाम)
+5. **MSE Relaxation for Years Of Experience and Turnover**
+6. **Startup Relaxation for Years Of Experience and Turnover**
+7. **Classification of cables for improved fire performace category**
+8. **Nominal Area of Conductor**
+9. **Number of core**
+10. **Material of conductor**
+11. **Type of cable**
+12. **Consignee Reporting/Officer**
+13. **Delivery Address**
+14. **Delivery Days**
+
+---
+
+## 🚀 Quick Start (Local Setup)
+
+### 1. Prerequisites
+- Node.js >= 18
+- Google Gemini API Key (get from [Google AI Studio](https://aistudio.google.com/))
+
+### 2. Install Dependencies
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/developerupadhyay/gem-bid-extractor.git
+cd gem-bid-extractor
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. Setup Environment Variables
+Create a `.env.local` file in the root directory:
+```env
+GEMINI_API_KEY=your_actual_gemini_api_key_here
+GEMINI_MODEL=gemini-3.8-flash
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Run Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## ☁️ Deployment on Vercel
 
-To learn more about Next.js, take a look at the following resources:
+1. Push your code to GitHub (already linked to `developerupadhyay/gem-bid-extractor`).
+2. Go to [Vercel](https://vercel.com/new) and import the repository.
+3. In **Environment Variables**, add:
+   - `GEMINI_API_KEY` = `your_gemini_api_key`
+4. Click **Deploy**. Vercel will automatically build and deploy the Next.js serverless app.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🛠️ Tech Stack
+- **Framework:** Next.js 16 (App Router)
+- **AI Model:** Google Gemini 3.8 Flash (with automatic fallback to Gemini 3.5 Flash-Lite)
+- **SDK:** `@google/genai` v2.31.0
+- **Exporting:** SheetJS (`xlsx`)
+- **Styling:** Tailwind CSS
+- **Icons:** Lucide React
