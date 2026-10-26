@@ -5,13 +5,34 @@ import { GeMBidData } from "@/types/bid";
 // Vercel Serverless Function settings
 export const maxDuration = 60; // 60 seconds timeout
 
+// Strict rate limiter to protect against exceeding Gemini 15 RPM quota
+const ipRequestHistory = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 10; // Cap at 10 requests/min per IP
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB max file size
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = (ipRequestHistory.get(ip) || []).filter(
+    (t) => now - t < RATE_LIMIT_WINDOW_MS
+  );
+
+  if (timestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+    return true; // Exceeded
+  }
+
+  timestamps.push(now);
+  ipRequestHistory.set(ip, timestamps);
+  return false;
+}
+
 // JSON Schema definition for Google GenAI structured output
-const gemBidSchema = {
+const documentSchema = {
   type: Type.OBJECT,
   properties: {
     bidNumber: {
       type: Type.STRING,
-      description: "Bid Number / बिड संख्या (e.g. GEM/2025/B/6990980)",
+      description: "Bid Number / Identifier / बिड संख्या (e.g. GEM/2025/B/6990980)",
     },
     bidEndDateTime: {
       type: Type.STRING,
@@ -65,6 +86,10 @@ const gemBidSchema = {
       type: Type.STRING,
       description: "Delivery Days / डिलीवरी के दिन (e.g. 90)",
     },
+    documentLinks: {
+      type: Type.STRING,
+      description: "Any URLs, web links, document download links (such as tender specs, OM circulars, guidelines, or email addresses) found across the document. Format as URLs/links separated by spaces or newlines. If none found, return 'None'.",
+    },
   },
   required: [
     "bidNumber",
@@ -81,12 +106,13 @@ const gemBidSchema = {
     "consigneeReportingOfficer",
     "address",
     "deliveryDays",
+    "documentLinks",
   ],
 };
 
 const EXTRACTION_PROMPT = `
-You are an expert Government e-Marketplace (GeM) Bid Document Analyzer.
-Analyze the provided GeM Bid PDF document thoroughly across all pages and extract the following 14 specific fields accurately:
+You are an expert Document and Tender Specification Analyzer.
+Analyze the provided PDF document thoroughly across all pages and extract the following fields accurately:
 
 1. Bid Number (बिड संख्या) - usually located on the top right of Page 1 (e.g. GEM/2025/B/6990980)
 2. Bid End Date/Time (बिड बंद होने की तारीख/समय) - from the Bid Details table (e.g. 05-01-2026 14:00:00)
@@ -102,12 +128,12 @@ Analyze the provided GeM Bid PDF document thoroughly across all pages and extrac
 12. Consignee Reporting/Officer - under Consignees/Reporting Officer table (e.g. Hema O)
 13. Address - full delivery address in Consignees table (e.g. 524124,PSO, SPROB STORES, SDSC SHAR, SRIHARIKOTA)
 14. Delivery Days - delivery days in Consignees table (e.g. 90)
+15. Document Links & Downloads - Any URLs, hyperlinks, document download links (such as OM links, BOQ links, specification files), or email addresses mentioned in the document (e.g. OM_No.1_4_2021_PPD_dated_18.05.2023 or email IDs like smpcu1-purchase@shar.gov.in).
 
 If any specific field is not found in the document, return "Not Specified" or "N/A" for that field.
 Do not hallucinate. Extract exact text as appearing in the document.
 `;
 
-// Helper: Run promise with timeout
 function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
   return Promise.race([
     promise,
@@ -119,36 +145,62 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    const userApiKey = (formData.get("apiKey") as string | null)?.trim();
-
-    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    // 1. IP Rate Limiting Security Check
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+    if (checkRateLimit(ip)) {
       return NextResponse.json(
         {
           error:
-            "Gemini API Key missing. Please provide it in the header/form or set GEMINI_API_KEY in .env.local",
+            "Rate limit reached. To prevent exceeding API quotas, maximum 10 document requests per minute are allowed. Please wait 60 seconds.",
         },
-        { status: 400 }
+        { status: 429 }
+      );
+    }
+
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not configured in server environment." },
+        { status: 500 }
       );
     }
 
     if (!file) {
       return NextResponse.json(
-        { error: "No PDF document uploaded. Please upload a GeM Bid PDF file." },
+        { error: "No document uploaded. Please upload a PDF file." },
+        { status: 400 }
+      );
+    }
+
+    // 2. File size validation (Max 20MB)
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        { error: "File size exceeds the 20MB limit. Please upload a smaller document." },
         { status: 400 }
       );
     }
 
     // Convert PDF file to base64
     const arrayBuffer = await file.arrayBuffer();
+
+    // 3. Magic bytes validation (Check %PDF-)
+    const fileHeader = Buffer.from(arrayBuffer.slice(0, 5)).toString("ascii");
+    if (fileHeader !== "%PDF-") {
+      return NextResponse.json(
+        { error: "Invalid file format. Only authentic PDF files are allowed." },
+        { status: 400 }
+      );
+    }
+
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
-    const mimeType = file.type || "application/pdf";
+    const mimeType = "application/pdf";
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // gemini-3.5-flash-lite is fastest and highly available
+    // Preferred model chain with fallback
     const preferredModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
     const modelsToTry = Array.from(
       new Set([preferredModel, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"])
@@ -160,10 +212,9 @@ export async function POST(req: NextRequest) {
 
     for (const model of modelsToTry) {
       try {
-        console.log(`[Gemini OCR] ⏳ Attempting extraction with model: ${model}`);
+        console.log(`[Document Processor] ⏳ Processing with model: ${model}`);
         const startTime = Date.now();
 
-        // 20 second timeout per model attempt to prevent hanging on overloaded models
         const generatePromise = ai.models.generateContent({
           model,
           contents: [
@@ -177,7 +228,7 @@ export async function POST(req: NextRequest) {
           ],
           config: {
             responseMimeType: "application/json",
-            responseJsonSchema: gemBidSchema,
+            responseJsonSchema: documentSchema,
             temperature: 0.1,
           },
         });
@@ -191,18 +242,17 @@ export async function POST(req: NextRequest) {
         if (response.text) {
           extractedData = JSON.parse(response.text) as GeMBidData;
           usedModel = model;
-          console.log(`[Gemini OCR] ✅ Success with ${model} in ${Date.now() - startTime}ms`);
+          console.log(`[Document Processor] ✅ Success with ${model} in ${Date.now() - startTime}ms`);
           break;
         }
       } catch (err: unknown) {
         const error = err as Error & { status?: number };
-        console.warn(`[Gemini OCR] ⚠️ Model ${model} failed/timed out:`, error.message);
+        console.warn(`[Document Processor] ⚠️ Model ${model} failed/timed out:`, error.message);
         lastError = error;
 
-        // If it's an authentication error (401/403), stop immediately
         if (error.status === 401 || error.status === 403 || error.message?.includes("API_KEY_INVALID")) {
           return NextResponse.json(
-            { error: "Invalid Gemini API Key. Please verify your API Key." },
+            { error: "Invalid API Key configured on server." },
             { status: 401 }
           );
         }
@@ -214,7 +264,7 @@ export async function POST(req: NextRequest) {
         {
           error:
             lastError?.message ||
-            "Failed to extract fields from the PDF. All fallback models failed.",
+            "Failed to extract fields from the document. Please try again.",
         },
         { status: 500 }
       );
@@ -229,7 +279,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     const err = error as Error;
-    console.error("[Gemini OCR API Error]", err);
+    console.error("[Document Processor API Error]", err);
     return NextResponse.json(
       { error: err.message || "An unexpected error occurred during document processing." },
       { status: 500 }
