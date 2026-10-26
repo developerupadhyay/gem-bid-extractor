@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   FileText,
   UploadCloud,
@@ -15,9 +16,20 @@ import {
   Mail,
   FileDown,
   LogOut,
+  Eye,
 } from "lucide-react";
 import { GeMBidData, BID_FIELD_DEFINITIONS } from "@/types/bid";
 import { exportToExcel, exportToCSV } from "@/utils/export";
+
+// Dynamically import PdfPreview with SSR disabled to guarantee smooth canvas rendering
+const PdfPreview = dynamic(() => import("@/components/PdfPreview"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[550px] bg-white border border-zinc-200 rounded-xl flex items-center justify-center text-zinc-400 text-xs">
+      Loading preview engine...
+    </div>
+  ),
+});
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -195,211 +207,235 @@ export default function Home() {
   );
 
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col items-center justify-start py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl w-full space-y-5">
-        {/* Top utility row with Sign Out */}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60 transition-colors"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            <span>Sign Out</span>
-          </button>
+    <main className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col py-8 px-4 sm:px-6 lg:px-8">
+      {/* Top Action Row */}
+      <div className="max-w-7xl mx-auto w-full flex items-center justify-between pb-4">
+        <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
+          {file && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-zinc-200 rounded-md">
+              <Eye className="h-3.5 w-3.5 text-zinc-400" />
+              <span>Side-by-side verification enabled</span>
+            </span>
+          )}
         </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/60 transition-colors cursor-pointer"
+          title="Sign out"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          <span>Sign Out</span>
+        </button>
+      </div>
 
-        {/* Upload Card */}
-        <section className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-5">
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-8 sm:p-10 text-center cursor-pointer transition-colors ${
-              file
-                ? "border-blue-500 bg-blue-50/40"
-                : "border-zinc-300 hover:border-zinc-400 bg-zinc-50/60"
-            }`}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept="application/pdf"
-              className="hidden"
-            />
-            <div className="flex flex-col items-center gap-2.5">
-              <div className="h-12 w-12 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500">
+      {/* Main Content Layout: Stacks when empty, 2 columns when file is selected */}
+      <div
+        className={`max-w-7xl mx-auto w-full transition-all ${
+          file ? "grid grid-cols-1 lg:grid-cols-2 gap-6 items-start" : "max-w-3xl"
+        }`}
+      >
+        {/* LEFT COLUMN: Upload Card & Extracted Table */}
+        <div className="space-y-6">
+          {/* Upload Card */}
+          <section className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-6 sm:p-8 text-center cursor-pointer transition-colors ${
+                file
+                  ? "border-blue-500 bg-blue-50/40"
+                  : "border-zinc-300 hover:border-zinc-400 bg-zinc-50/60"
+              }`}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="application/pdf"
+                className="hidden"
+              />
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-11 w-11 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500">
+                  {file ? (
+                    <FileText className="h-5 w-5 text-blue-600" />
+                  ) : (
+                    <UploadCloud className="h-5 w-5 text-zinc-500" />
+                  )}
+                </div>
+
                 {file ? (
-                  <FileText className="h-6 w-6 text-blue-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-800">{file.name}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5 tabular-nums">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB • PDF ready
+                    </p>
+                  </div>
                 ) : (
-                  <UploadCloud className="h-6 w-6 text-zinc-500" />
+                  <div>
+                    <p className="text-sm font-medium text-zinc-700">
+                      Drop PDF file here, or <span className="text-blue-600 underline">browse</span>
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5">Supports PDF files up to 20MB</p>
+                  </div>
                 )}
               </div>
-
-              {file ? (
-                <div>
-                  <p className="text-sm font-semibold text-zinc-800">{file.name}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 tabular-nums">
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB • PDF selected
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm font-medium text-zinc-700">
-                    Drop PDF file here, or <span className="text-blue-600 underline">browse</span>
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1">Supports PDF files up to 20MB</p>
-                </div>
-              )}
             </div>
-          </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={handleExtract}
-              disabled={isLoading || !file}
-              className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-            >
-              {isLoading ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  <span>Process File</span>
-                </>
-              )}
-            </button>
-
-            {(file || data) && (
+            {/* Action Buttons */}
+            <div className="flex items-center justify-between gap-4 pt-1">
               <button
                 type="button"
-                onClick={handleReset}
-                disabled={isLoading}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
+                onClick={handleExtract}
+                disabled={isLoading || !file}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xs cursor-pointer"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset</span>
+                {isLoading ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    <span>Process File</span>
+                  </>
+                )}
               </button>
-            )}
-          </div>
 
-          {/* Status / Error messages */}
-          {statusMessage && !error && (
-            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
-              <span>{statusMessage}</span>
+              {(file || data) && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset</span>
+                </button>
+              )}
             </div>
-          )}
 
-          {error && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 text-red-600 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-        </section>
-
-        {/* Results Section */}
-        {data && (
-          <section className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
-            {/* Toolbar */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-zinc-200">
-              <input
-                type="text"
-                placeholder="Filter fields..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="max-w-xs w-full px-3 py-1.5 text-xs bg-zinc-50 border border-zinc-300 rounded-lg text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => exportToExcel(data, "Extracted_Data.xlsx")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Export Excel</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => exportToCSV(data, "Extracted_Data.csv")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Export CSV</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCopyJson}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors"
-                >
-                  {isCopiedAll ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      <span>Copy All</span>
-                    </>
-                  )}
-                </button>
+            {/* Status / Error messages */}
+            {statusMessage && !error && (
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                <span>{statusMessage}</span>
               </div>
-            </div>
+            )}
 
-            {/* Clean 2-Column Table: Field & Value */}
-            <div className="overflow-x-auto rounded-lg border border-zinc-200">
-              <table className="w-full text-left text-xs sm:text-sm border-collapse">
-                <thead className="bg-zinc-50 text-zinc-600 font-semibold border-b border-zinc-200 uppercase tracking-wider text-xs">
-                  <tr>
-                    <th className="py-3 px-4 w-2/5">Field</th>
-                    <th className="py-3 px-4">Value</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200">
-                  {filteredFields.map((field) => {
-                    const val = data[field.key] || "N/A";
-                    return (
-                      <tr
-                        key={field.key}
-                        onClick={() => handleCopyValue(val, field.key)}
-                        className="hover:bg-zinc-50 transition-colors cursor-pointer group"
-                        title="Click row to copy value"
-                      >
-                        <td className="py-3.5 px-4 font-medium text-zinc-700 align-top">
-                          {field.label}
-                        </td>
-                        <td className="py-3.5 px-4 font-medium text-zinc-900 break-words align-top">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1">
-                              {renderValueContent(val)}
-                            </div>
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 mt-0.5">
-                              {copiedKey === field.key ? (
-                                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="h-3.5 w-3.5" />
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {error && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 text-red-600 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
           </section>
+
+          {/* Extracted Results Table Section */}
+          {data && (
+            <section className="bg-white border border-zinc-200 rounded-xl p-5 shadow-sm space-y-4">
+              {/* Toolbar */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-zinc-200">
+                <input
+                  type="text"
+                  placeholder="Filter fields..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="max-w-xs w-full px-3 py-1.5 text-xs bg-zinc-50 border border-zinc-300 rounded-lg text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => exportToExcel(data, "Extracted_Data.xlsx")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Export Excel</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => exportToCSV(data, "Extracted_Data.csv")}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyJson}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    {isCopiedAll ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy All</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Clean 2-Column Table: Field & Value */}
+              <div className="overflow-x-auto rounded-lg border border-zinc-200">
+                <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                  <thead className="bg-zinc-50 text-zinc-600 font-semibold border-b border-zinc-200 uppercase tracking-wider text-xs">
+                    <tr>
+                      <th className="py-2.5 px-3.5 w-2/5">Field</th>
+                      <th className="py-2.5 px-3.5">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200">
+                    {filteredFields.map((field) => {
+                      const val = data[field.key] || "N/A";
+                      return (
+                        <tr
+                          key={field.key}
+                          onClick={() => handleCopyValue(val, field.key)}
+                          className="hover:bg-zinc-50 transition-colors cursor-pointer group"
+                          title="Click row to copy value"
+                        >
+                          <td className="py-3 px-3.5 font-medium text-zinc-700 align-top text-xs sm:text-sm">
+                            {field.label}
+                          </td>
+                          <td className="py-3 px-3.5 font-medium text-zinc-900 break-words align-top text-xs sm:text-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                {renderValueContent(val)}
+                              </div>
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 mt-0.5">
+                                {copiedKey === field.key ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* RIGHT COLUMN: Pure Canvas PDF Preview (No iframe, No browser download toolbar) */}
+        {file && (
+          <div className="lg:sticky lg:top-8 space-y-2">
+            <PdfPreview file={file} />
+          </div>
         )}
       </div>
     </main>
