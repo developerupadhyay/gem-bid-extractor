@@ -107,6 +107,16 @@ If any specific field is not found in the document, return "Not Specified" or "N
 Do not hallucinate. Extract exact text as appearing in the document.
 `;
 
+// Helper: Run promise with timeout
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${errorMsg} (timeout of ${ms}ms reached)`)), ms)
+    ),
+  ]);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -138,10 +148,10 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Fallback models chain: user-preference -> gemini-3.8-flash -> gemini-3.5-flash-lite
-    const preferredModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+    // gemini-3.5-flash-lite is fastest and highly available
+    const preferredModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
     const modelsToTry = Array.from(
-      new Set([preferredModel, "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-4-argon"])
+      new Set([preferredModel, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-4-argon"])
     );
 
     let lastError: Error | null = null;
@@ -150,8 +160,11 @@ export async function POST(req: NextRequest) {
 
     for (const model of modelsToTry) {
       try {
-        console.log(`[Gemini OCR] Attempting extraction with model: ${model}`);
-        const response = await ai.models.generateContent({
+        console.log(`[Gemini OCR] ⏳ Attempting extraction with model: ${model}`);
+        const startTime = Date.now();
+
+        // 20 second timeout per model attempt to prevent hanging on overloaded models
+        const generatePromise = ai.models.generateContent({
           model,
           contents: [
             {
@@ -165,25 +178,28 @@ export async function POST(req: NextRequest) {
           config: {
             responseMimeType: "application/json",
             responseJsonSchema: gemBidSchema,
-            temperature: 0.1, // Low temperature for high precision OCR extraction
+            temperature: 0.1,
           },
         });
+
+        const response = await withTimeout(
+          generatePromise,
+          25000,
+          `Model ${model} took too long to respond`
+        );
 
         if (response.text) {
           extractedData = JSON.parse(response.text) as GeMBidData;
           usedModel = model;
+          console.log(`[Gemini OCR] ✅ Success with ${model} in ${Date.now() - startTime}ms`);
           break;
         }
       } catch (err: unknown) {
         const error = err as Error & { status?: number };
-        console.warn(`[Gemini OCR] Model ${model} encountered error:`, error.message);
+        console.warn(`[Gemini OCR] ⚠️ Model ${model} failed/timed out:`, error.message);
         lastError = error;
 
-        // If it's a 503 (high demand) or 404, we continue to the next fallback model
-        if (error.status === 503 || error.status === 404 || error.message?.includes("demand")) {
-          continue;
-        }
-        // If it's an authentication error (401/403), no need to try other models
+        // If it's an authentication error (401/403), stop immediately
         if (error.status === 401 || error.status === 403 || error.message?.includes("API_KEY_INVALID")) {
           return NextResponse.json(
             { error: "Invalid Gemini API Key. Please verify your API Key." },
