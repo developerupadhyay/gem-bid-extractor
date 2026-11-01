@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@google/genai", "pdfjs-dist"],
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
-    root: __dirname,
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

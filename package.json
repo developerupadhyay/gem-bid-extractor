@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.31.0",
+    "cheerio": "^1.2.0",
     "lucide-react": "^1.61.0",
     "next": "16.4.3",
     "pdfjs-dist": "^4.10.38",
@@ -18,12 +19,16 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@next/swc-darwin-arm64": "^16.4.3",
+    "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "lightningcss-darwin-arm64": "^1.33.0",
+    "postcss": "^8.5.32",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

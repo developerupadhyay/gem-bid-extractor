@@ -1,9 +1,23 @@
 export interface DocumentLinkItem {
-  page: number;
+  page?: number;
   type: string;        // e.g. "Specification Document", "BOQ Detail Document"
   title: string;       // e.g. Item title or surrounding heading
   url: string;         // target download/view URL
   isDownloadable: boolean;
+  extension?: string;  // e.g. "pdf", "xlsx", "zip"
+}
+
+export interface UrlExtractResult {
+  url: string;
+  pageTitle: string;
+  totalLinks: number;
+  downloadableLinksCount: number;
+  links: DocumentLinkItem[];
+  geminiAnalysis?: string;
+  currentPage?: number;
+  totalPages?: number;
+  totalRecords?: number;
+  isPaginated?: boolean;
 }
 
 export interface GeMBidData {
